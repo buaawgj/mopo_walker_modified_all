@@ -113,8 +113,8 @@ class SACPolicy(nn.Module):
     def learn(self, data, fake_data):
         obs, actions, next_obs, terminals, rewards = data["observations"], \
             data["actions"], data["next_observations"], data["terminals"], data["rewards"]
-        fake_obs, fake_actions, fake_next_obs, fake_terminals, fake_rewards = data["observations"], \
-            data["actions"], data["next_observations"], data["terminals"], data["rewards"]
+        fake_obs, fake_actions, next_fake_obs, fake_terminals, fake_rewards = fake_data["observations"], \
+            fake_data["actions"], fake_data["next_observations"], fake_data["terminals"], fake_data["rewards"]
         
         rewards = torch.as_tensor(rewards).to(self._device)
         terminals = torch.as_tensor(terminals).to(self._device)
@@ -143,15 +143,15 @@ class SACPolicy(nn.Module):
         
         # compute target critic values
         with torch.no_grad():
-            next_actions, next_log_probs = self(next_obs)
-            next_q = torch.min(
-                self.critic1_old(next_obs, next_actions), self.critic2_old(next_obs, next_actions)
-            ) - self._alpha * next_log_probs
-            target_q = rewards.flatten() + self._gamma * (1 - terminals.flatten()) * next_q.flatten()
+            next_fake_actions, next_fake_log_probs = self(next_fake_obs)
+            next_qf = torch.min(
+                self.critic1_old(next_fake_obs, next_fake_actions), self.critic2_old(next_fake_obs, next_fake_actions)
+            ) - self._alpha * next_fake_log_probs
+            target_qf = fake_rewards.flatten() + self._gamma * (1 - fake_terminals.flatten()) * next_qf.flatten()
             
         with torch.no_grad():
-            next_qf = self.true_valnet(next_obs)
-            target_qf = fake_rewards.flatten() + self._gamma * (1 - fake_terminals.flatten()) * next_qf.flatten()
+            next_q = self.true_valnet(next_obs)
+            target_q = rewards.flatten() + self._gamma * (1 - terminals.flatten()) * next_q.flatten()
             
         critic1_loss = ((q1 - target_q).pow(2)).mean() + ((q1f - target_qf).pow(2)).mean()
         self.critic1_optim.zero_grad()
@@ -164,6 +164,7 @@ class SACPolicy(nn.Module):
         self.critic2_optim.step()
 
         # update actor
+        obs = torch.cat([obs, fake_obs], dim=0)
         a, log_probs = self(obs)
         q1a, q2a = self.critic1(obs, a).flatten(), self.critic2(obs, a).flatten()
         actor_loss = (self._alpha * log_probs.flatten() - torch.min(q1a, q2a)).mean()
