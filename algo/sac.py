@@ -42,6 +42,7 @@ class SACPolicy(nn.Module):
         self.actor_lr = self.actor_optim.param_groups[0]['lr']
         self.critic1_lr = self.critic1_optim.param_groups[0]['lr']
         self.critic2_lr = self.critic2_optim.param_groups[0]['lr']
+        self.val_lr = self.val_optim.param_groups[0]['lr']
 
         self.action_space = action_space
         self.dist = dist
@@ -110,6 +111,10 @@ class SACPolicy(nn.Module):
         for param_group in self.critic2_optim.param_groups:
             param_group['lr'] = current_critic2_lr
 
+        current_val_lr = self.val_lr * (1 - 0.7 * epoch_i / epoch_num)
+        for param_group in self.val_optim.param_groups:
+            param_group['lr'] = current_val_lr
+
     def learn(self, data, fake_data):
         obs, actions, next_obs, terminals, rewards = data["observations"], \
             data["actions"], data["next_observations"], data["terminals"], data["rewards"]
@@ -164,7 +169,9 @@ class SACPolicy(nn.Module):
         self.critic2_optim.step()
 
         # update actor
-        obs = torch.cat([obs, fake_obs], dim=0)
+        obs = torch.as_tensor(obs).to(self._device)
+        fake_obs = torch.as_tensor(fake_obs).to(self._device)
+        obs = torch.cat([obs, fake_obs], dim=0).to(self._device)
         a, log_probs = self(obs)
         q1a, q2a = self.critic1(obs, a).flatten(), self.critic2(obs, a).flatten()
         actor_loss = (self._alpha * log_probs.flatten() - torch.min(q1a, q2a)).mean()
